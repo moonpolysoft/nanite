@@ -21,8 +21,10 @@ module Nanite
       EM.run{
         ping_time = opts.delete(:ping_time) || 15
         start_console = opts.delete(:console)
-        AMQP.start opts
         Nanite.mapper = Mapper.new(ping_time)
+        AMQP.connect(opts) do |conn|
+          Nanite.mapper.setup(conn)
+        end
         Nanite.start_console if start_console
       }
     end
@@ -33,9 +35,7 @@ module Nanite
       @identity = Nanite.gensym
       @ping_time = ping_time
       @nanites = {}
-      @amq = MQ.new
       @timeouts = {}
-      setup_queues
       Nanite.log.info "starting mapper with nanites(#{@nanites.keys.size}):\n#{@nanites.keys.join(',')}"
       EM.add_periodic_timer(@ping_time) do
         check_pings
@@ -79,6 +79,11 @@ module Nanite
       else
         false
       end
+    end
+    
+    def setup(conn)
+      @amq = MQ.new(conn)
+      setup_queues
     end
 
     private

@@ -93,16 +93,18 @@ module Nanite
       Nanite.file_root         = opts[:file_root] || "#{Nanite.root}/files"
       Nanite.default_services  = opts[:services] || []
 
-      daemonize(opts[:log_file] || "#{Nanite.identity}.log") if opts[:daemonize]
+      daemonize(opts[:log_file] || "#{Nanite.identity}.log", opts[:pid_file]) if opts[:daemonize]
 
-      AMQP.start :user  => opts[:user],
+      AMQP.connect(:user  => opts[:user],
                  :pass  => opts[:pass],
                  :vhost => Nanite.vhost,
                  :host  => Nanite.host,
-                 :port  => (opts[:port] || ::AMQP::PORT).to_i
-
-      load_actors
-      advertise_services
+                 :port  => (opts[:port] || ::AMQP::PORT).to_i,
+                 :insist => opts[:insist] || false) do |conn|
+        Nanite.amq = MQ.new(conn)
+        load_actors
+        advertise_services
+      end
 
       EM.add_periodic_timer((opts[:ping_time]||15).to_i) do
         send_ping
@@ -130,7 +132,11 @@ module Nanite
     end
 
     def amq
-      Thread.current[:mq] ||= MQ.new
+      Thread.current[:mq]
+    end
+    
+    def amq=(mq)
+      Thread.current[:mq] = mq
     end
 
     def pending
@@ -168,10 +174,13 @@ module Nanite
     end
 
     protected
-    def daemonize(log_file)
+    def daemonize(log_file, pid_file)
       exit if fork
       Process.setsid
       exit if fork
+      File.open(pid_file, "w") do |file|
+        file.write(Process.pid)
+      end if pid_file
       $stdin.reopen("/dev/null")
       $stdout.reopen(log_file, "a")
       $stderr.reopen($stdout)
